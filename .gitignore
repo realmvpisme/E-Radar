@@ -6,3 +6,5 @@ appsettings.development.json
 bin/
 obj/
 *.db
+properties/
+*.csproj.user
