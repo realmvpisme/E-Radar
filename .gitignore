@@ -1,5 +1,5 @@
 App.config
-/.git
-/.vs
-/bin
-/obj
+.git/
+.vs/
+bin/
+obj/
