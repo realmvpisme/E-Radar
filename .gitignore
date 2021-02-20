@@ -1,6 +1,8 @@
 App.config
 appsettings.json
+appsettings.development.json
 .git/
 .vs/
 bin/
 obj/
+*.db
