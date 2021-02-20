@@ -1,4 +1,5 @@
 App.config
+appsettings.json
 .git/
 .vs/
 bin/
