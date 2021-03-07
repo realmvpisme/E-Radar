@@ -1,17 +1,16 @@
-﻿using System;
-using System.Linq;
-using System.Runtime.CompilerServices;
-using System.Threading.Tasks;
-using E_Radar.Data;
+﻿using E_Radar.Data;
 using E_Radar.Data.Models;
-using MailKit.Net.Imap;
 using MailKit.Net.Smtp;
 using Microsoft.EntityFrameworkCore;
 using MimeKit;
+using System;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 
 namespace E_Radar
 {
-    public class MailSender
+    public class MailSender : IDisposable
     {
         private readonly string _senderName;
         private readonly string _hostName;
@@ -22,6 +21,9 @@ namespace E_Radar
         private readonly string _smsEmailAddress;
         private readonly string _recipientName;
         private readonly string _emailSubject;
+        private bool isDisposed;
+        private IntPtr nativeResource = Marshal.AllocHGlobal(100);
+
 
         public MailSender(EmailSender senderOptions)
         {
@@ -105,6 +107,36 @@ namespace E_Radar
                 await context.SaveChangesAsync();
             }
         }
-        
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (isDisposed) return;
+
+            if (disposing)
+            {
+                // free managed resources
+            }
+
+            if (nativeResource != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(nativeResource);
+                nativeResource = IntPtr.Zero;
+            }
+
+            isDisposed = true;
+        }
+
+        ~MailSender()
+        {
+            // Finalizer calls Dispose(false)
+            Dispose(false);
+        }
+
     }
 }
