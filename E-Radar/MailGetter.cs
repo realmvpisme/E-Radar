@@ -1,16 +1,17 @@
-﻿using System;
-using System.Collections.Generic;
-using MailKit.Net.Imap;
-using System.Threading.Tasks;
-using MailKit;
-using MimeKit;
-using E_Radar.Data;
-using Microsoft.EntityFrameworkCore;
+﻿using E_Radar.Data;
 using E_Radar.Data.Models;
+using MailKit;
+using MailKit.Net.Imap;
+using Microsoft.EntityFrameworkCore;
+using MimeKit;
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 
 namespace E_Radar
 {
-    public class MailGetter
+    public class MailGetter : IDisposable
     {
         private readonly string _hostName;
         private readonly int _port;
@@ -19,6 +20,8 @@ namespace E_Radar
         private readonly bool _ssl;
         private readonly string[] _subjectSearchTerms;
         private readonly string[] _bodySearchTerms;
+        private bool isDisposed;
+        private IntPtr nativeResource = Marshal.AllocHGlobal(100);
 
         public MailGetter(EmailClient clientOptions)
         {
@@ -33,25 +36,20 @@ namespace E_Radar
         }
         public async Task GetNewMessages()
         {
-            using (var client = new ImapClient())
-            {
-               
+            using var client = new ImapClient();
 
+            client.Connect(_hostName, _port, _ssl);
+            await client.AuthenticateAsync(_userName, _password);
 
-                client.Connect(_hostName, _port, _ssl);
-                await client.AuthenticateAsync(_userName, _password);
+            var inbox = client.Inbox;
+            await inbox.OpenAsync(FolderAccess.ReadOnly);
 
-                var inbox = client.Inbox;
-                await inbox.OpenAsync(FolderAccess.ReadOnly);
+            Console.WriteLine($"Total Messages: {inbox.Count}");
+            Console.WriteLine($"Recent Messages: {inbox.Recent}");
 
-                Console.WriteLine($"Total Messages: {inbox.Count}");
-                Console.WriteLine($"Recent Messages: {inbox.Recent}");
+            await searchMessages(inbox);
 
-                await searchMessages(inbox);
-              
-
-                await client.DisconnectAsync(true);
-            }
+            await client.DisconnectAsync(true);
         }
 
         private async Task searchMessages(IMailFolder inbox)
@@ -69,8 +67,6 @@ namespace E_Radar
                         {
                             var message = await inbox.GetMessageAsync(summary.UniqueId);
                             matchingMessages.Add(message);
-                            Console.WriteLine($"Found matching message {message.From}, {message.Subject}.");
-
                         }
                     }
                 }
@@ -83,7 +79,6 @@ namespace E_Radar
                         {
                             var message = await inbox.GetMessageAsync(summary.UniqueId);
                             matchingMessages.Add(message);
-                            Console.WriteLine($"Found matching message {message.From}, {message.Subject}.");
                         }
                     }
                 }
@@ -94,34 +89,67 @@ namespace E_Radar
 
         private async Task sendToDatabase(List<MimeMessage> messages)
         {
-            using(var context = new E_RadarDbContext())
+            await using var context = new E_RadarDbContext();
+            await context.Database.MigrateAsync();
+
+            foreach (var message in messages)
             {
-                await context.Database.MigrateAsync();
-
-                foreach (var message in messages)
+                if (!await context.Messages.AnyAsync(x => x.UniqueId == message.MessageId))
                 {
-                    if(!await context.Messages.AnyAsync(x => x.UniqueId == message.MessageId))
-                    {
-                        var newMessage = new MessageModel()
-                        {
-                            CreatedTime = DateTime.UtcNow,
-                            SentTime = DateTime.Parse(message.Date.ToString()),
-                            Notified = false,
-                            UniqueId = message.MessageId,
-                            From = message.From != null ? message.From?.ToString() : message.ReplyTo?.ToString(),
-                            To = message.To.ToString(),
-                            Cc = message.Cc?.ToString(),
-                            Bcc = message.Bcc?.ToString(),
-                            Subject = message.Subject?.ToString(),
-                            Body = message.TextBody
+                    Console.WriteLine($"Found new matching message {message.From}, {message.Subject}.");
 
-                        };
-                        await context.Messages.AddAsync(newMessage);
-                        await context.SaveChangesAsync();
-                    }
+                    var newMessage = new MessageModel()
+                    {
+                        CreatedTime = DateTime.UtcNow,
+                        SentTime = DateTime.Parse(message.Date.ToString()),
+                        Notified = false,
+                        UniqueId = message.MessageId,
+                        From = message.From != null ? message.From?.ToString() : message.ReplyTo?.ToString(),
+                        To = message.To.ToString(),
+                        Cc = message.Cc?.ToString(),
+                        Bcc = message.Bcc?.ToString(),
+                        Subject = message.Subject?.ToString(),
+                        Body = message.TextBody
+
+                    };
+                    await context.Messages.AddAsync(newMessage);
+                    await context.SaveChangesAsync();
                 }
             }
-            
+
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (isDisposed) return;
+
+            if (disposing)
+            {
+                // free managed resources
+            }
+
+            if (nativeResource != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(nativeResource);
+                nativeResource = IntPtr.Zero;
+            }
+
+            isDisposed = true;
+        }
+
+        // NOTE: Leave out the finalizer altogether if this class doesn't
+        // own unmanaged resources, but leave the other methods
+        // exactly as they are.
+        ~MailGetter()
+        {
+            // Finalizer calls Dispose(false)
+            Dispose(false);
         }
     }
 }
